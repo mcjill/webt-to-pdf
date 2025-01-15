@@ -23,7 +23,7 @@ function App() {
               {/* GitHub Link */}
               <div className="flex items-center">
                 <a
-                  href="https://github.com/yourusername/web2pdf"
+                  href="https://github.com/mcjill/webt-to-pdf"
                   target="_blank"
                   rel="noopener noreferrer"
                   className="inline-flex items-center px-4 py-2 rounded-lg bg-white/5 hover:bg-white/10 text-white/80 hover:text-white transition-all duration-200"
