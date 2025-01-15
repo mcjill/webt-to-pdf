@@ -1,6 +1,6 @@
 # Web to PDF Converter 🚀
 
-![Web to PDF App](Vite_React_TS·04.18·01-15.jpeg)
+![Web to PDF App](screenshot.jpeg)
 
 A modern, fast, and user-friendly web application that converts web pages to PDF documents with high fidelity. Built with Vite, React, TypeScript, and FastAPI.
 
