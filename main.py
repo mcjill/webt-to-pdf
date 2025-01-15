@@ -1,273 +1,232 @@
 #!/usr/bin/python
 
-from dominate.util import raw
-from dominate import tags as tags
-import dominate
-from weasyprint import HTML
-from readability import Document
-from fake_useragent import UserAgent
-import grequests
-import validators
-from rich.progress import Progress, SpinnerColumn, TextColumn
+from playwright.async_api import async_playwright
+import asyncio
 from rich.console import Console
 from rich import print
 import typer
-import gevent.monkey as curious_george
-curious_george.patch_all(thread=False, select=False)
-""" Styles for the PDF """
-
-css_styles = """
-    body {
-        hyphens: auto;
-        font-size: 12px;
-        font-weight: 100;
-        line-height: 1.5;
-        font-family: 'Work Sans', sans-serif;
-    }
-
-    @page {
-        size: A4;
-        @bottom-right {
-            content: counter(page);
-        }
-    }
-    @page :first {
-        @bottom-right {
-            content: "";
-        }
-    }
-
-    #article-body>div {
-        background-clip:content-box;
-        text-align: justify;
-        padding: 0em 1em;
-    }
-
-    #article-body > h1 {
-        font-weight: 100;
-        font-size: 24px;
-    }
-
-    .toc h1 {
-        font-weight: 100;
-        margin: 10% 0;
-    }
-    .toc h3 {
-        border-bottom: 2px solid #f9f9f9;
-        font-weight: 100;
-        padding: 1em 0em;
-    }
-
-    .toc h3 a {
-        display: block;
-        text-decoration: none;
-        color: #000;
-    }
-    .toc h3 a::after{
-        content: target-counter(attr(href), page);
-        float: right;
-    }
-    ul, li {
-        font-weight: 100;
-    }
-
-    img {
-        width: 100%;
-    }
-
-    .top-border {
-        border-top: 5px solid #000;
-        width: 30%;
-    }
-
-    .page-break {
-        page-break-before: always
-    }
-
-    blockquote {
-        background: #f9f9f9;
-        border-left: 10px solid #ccc;
-        margin: 1.5em 0.5em;
-        padding: 0.5em 0.5em;
-    }
-
-    blockquote p {
-        display: inline;
-    }
-
-    pre {
-        background: #f9f9f9;
-        border: 1px solid #eee;
-        white-space: pre-wrap
-    }
-    table {
-        background: #eee;
-        border: 1px solid #eee;
-        width: 100%;
-        white-space: pre-wrap
-    }
-    td{
-        background: #eee;
-    }
-
-    """
+import validators
+import os
+from rich.progress import Progress, SpinnerColumn, TextColumn
+from urllib.parse import urlparse
+import re
+from datetime import datetime
 
 class Web2PDFConverter:
-    """ Class to convert web pages to PDF """
-
     def __init__(self):
         self.console = Console()
-
-    def make_async_request(self, url_list, headers):
-        """ Making asynchrnous requests """
+        # Create pdfs directory if it doesn't exist
+        self.pdf_dir = os.path.join(os.getcwd(), 'pdfs')
+        os.makedirs(self.pdf_dir, exist_ok=True)
+        
+    def generate_filename(self, url, title=None):
+        """Generate a unique filename for the PDF"""
+        # Use title if available, otherwise use domain name
+        if title:
+            # Clean the title to make it filesystem-friendly
+            name = re.sub(r'[^\w\s-]', '', title)
+            name = re.sub(r'[-\s]+', '-', name).strip('-')
+        else:
+            # Use domain name from URL
+            domain = urlparse(url).netloc
+            name = domain.replace('.', '-')
+        
+        # Add timestamp to ensure uniqueness
+        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        return f"{name}_{timestamp}.pdf"
+        
+    async def capture_page_content(self, url):
+        """Capture page content using Playwright with JavaScript rendering"""
         try:
-            request_urls = (grequests.get(url, headers=headers)
-                            for url in url_list)
-            return grequests.map(request_urls)
+            async with async_playwright() as p:
+                browser = await p.chromium.launch(
+                    args=[
+                        '--no-sandbox',
+                        '--disable-setuid-sandbox',
+                        '--disable-dev-shm-usage',
+                        '--disable-gpu'
+                    ]
+                )
+                
+                context = await browser.new_context(
+                    viewport={'width': 1920, 'height': 1080},
+                    user_agent='Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+                )
+                
+                page = await context.new_page()
+                
+                try:
+                    # Set default timeout
+                    page.set_default_timeout(30000)
+                    
+                    # First try with domcontentloaded
+                    try:
+                        await page.goto(url, wait_until='domcontentloaded', timeout=30000)
+                    except Exception as e:
+                        print(f"Warning: Initial load failed, retrying with commit: {str(e)}")
+                        # If that fails, try with commit
+                        await page.goto(url, wait_until='commit', timeout=30000)
+                    
+                    # Try to wait for network idle, but don't fail if it times out
+                    try:
+                        await page.wait_for_load_state('networkidle', timeout=5000)
+                    except:
+                        print("Warning: Network did not reach idle state")
+                    
+                    # Wait for body with a shorter timeout
+                    try:
+                        await page.wait_for_selector('body', timeout=5000)
+                    except:
+                        print("Warning: Could not find body element")
+                    
+                    # Short wait for any remaining renders
+                    await asyncio.sleep(2)
+                    
+                    # Get page title
+                    try:
+                        title = await page.title()
+                    except:
+                        title = None
+                        print("Warning: Could not get page title")
+                    
+                    # Get page dimensions with fallback
+                    try:
+                        dimensions = await page.evaluate('''() => {
+                            return {
+                                width: Math.min(
+                                    Math.max(
+                                        document.documentElement.scrollWidth,
+                                        document.documentElement.clientWidth,
+                                        1024
+                                    ),
+                                    1920
+                                ),
+                                height: Math.min(
+                                    Math.max(
+                                        document.documentElement.scrollHeight,
+                                        document.documentElement.clientHeight,
+                                        768
+                                    ),
+                                    20000
+                                )
+                            }
+                        }''')
+                    except:
+                        print("Warning: Using fallback dimensions")
+                        dimensions = {'width': 1024, 'height': 768}
+                    
+                    # Set viewport
+                    await page.set_viewport_size({
+                        'width': dimensions['width'],
+                        'height': dimensions['height']
+                    })
+                    
+                    # Generate filename
+                    filename = self.generate_filename(url, title)
+                    pdf_path = os.path.join(self.pdf_dir, filename)
+                    
+                    # Save PDF
+                    await page.pdf(
+                        path=pdf_path,
+                        width=f"{dimensions['width']}px",
+                        height=f"{dimensions['height']}px",
+                        print_background=True,
+                        margin={'top': '0px', 'right': '0px', 'bottom': '0px', 'left': '0px'}
+                    )
+                    
+                    return pdf_path
+                    
+                except Exception as e:
+                    print(f"Error during page processing: {str(e)}")
+                    raise
+                finally:
+                    await page.close()
+                    await context.close()
+                    await browser.close()
+                    
         except Exception as e:
-            print(f"Error making asynchronous request: (e)")
-            return []
-
-    def create_html_document(self, request_responses):
-        """ Creating HTML document with Table of Contents"""
+            print(f"Error capturing page content: {e}")
+            raise Exception(f"Failed to convert webpage: {str(e)}")
+    
+    async def _scroll_page(self, page):
+        """Scroll through the page to trigger lazy loading"""
         try:
-            document = dominate.document()
-            with document.head:
-                tags.link(
-                    href="https://fonts.googleapis.com/css2?family=Work+Sans&display=swap",
-                    rel="stylesheet")
-                tags.style(raw(css_styles))
-                """ For column layout """
-                """ tags.style(raw(
-                    "#article-body>div {column-count: 2; column-gap: 2em; column-rule: 2px solid #f9f9f9;}")) """
-                tags.meta(charset='utf-8')
-                tags.meta(content="text/html")
-
-            with document:
-                with tags.div(cls='toc'):
-                    for index, each_response in enumerate(request_responses):
-                        if each_response:
-                            doc = Document(each_response.text)
-                            title = doc.title()
-                            with tags.h3():
-                                tags.a(title, href="#heading" + str(index))
-                    tags.p(cls='page-break')
-
-            return document
+            await page.evaluate('''async () => {
+                await new Promise((resolve) => {
+                    let totalHeight = 0;
+                    const distance = 100;
+                    const timer = setInterval(() => {
+                        const scrollHeight = document.documentElement.scrollHeight;
+                        window.scrollBy(0, distance);
+                        totalHeight += distance;
+                        
+                        if(totalHeight >= scrollHeight){
+                            clearInterval(timer);
+                            resolve();
+                        }
+                    }, 100);
+                });
+            }''')
         except Exception as e:
-            print(f"Error creating HTML document: {e}")
-            return dominate.document()
-
-    def process_and_add_content(self, request_responses, document):
-        """ Processing the response and adding content to the HTML document """
-        try:
-            for index, each_response in enumerate(request_responses):
-                if each_response:
-                    doc = Document(each_response.content)
-                    title = doc.title()
-                    main_content = doc.summary()
-                    with document as final_document:
-                        with tags.div(id='article-body'):
-                            tags.h1(title, id='heading' + str(index))
-                            tags.p(cls='top-border')
-                            tags.div(raw(main_content))
-                        tags.p(cls='page-break')
-
-            return final_document
-        except Exception as e:
-            print(f"Error processing and adding content: {e}")
-            return document
-
-    def save_html_to_file(self, html_document):
-        """ Writing the HTML document to file """
-        try:
-            with open("print.html", "w+") as output_file:
-                output_file.write(html_document.render())
-        except Exception as e:
-            print(f"Error saving HTML to file: {e}")
-
-    def convert_html_to_pdf(self, html_filename="print.html", pdf_filename="print.pdf"):
-        """ Converting HTML to PDF using WeasyPrint"""
-        try:
-            HTML(html_filename).write_pdf(pdf_filename)
-        except Exception as e:
-            print(f"Error converting HTML to PDF: {e}")
-
-    def process_urls(self, url_list):
-        """ Processing the URLs """
-        user_agent = UserAgent()
-        headers = {'User-Agent': user_agent.random}
+            print(f"Warning: Error during page scrolling: {e}")
+            
+    async def process_urls(self, url_list):
+        """Process URLs and convert to PDF"""
         try:
             with Progress(
                 SpinnerColumn(),
                 TextColumn("[progress.description]{task.description}"),
                 transient=True,
             ) as progress:
-                progress.add_task(description="Processing URLs. :link:")
-                request_responses = self.make_async_request(url_list, headers)
-
                 progress.add_task(
-                    description="Preparing HTML document. :page_with_curl:")
-                document = self.create_html_document(request_responses)
+                    description="[green]Converting webpages to PDF...", total=None)
+                
+                # Process each URL
+                for url in url_list:
+                    pdf_path = await self.capture_page_content(url)
+                    if pdf_path:
+                        self.console.print(f"\nPDF saved as: [green]{os.path.basename(pdf_path)}[/green] in [blue]pdfs/[/blue] folder \n")
+                    else:
+                        self.console.print(f"\n[red]Failed to convert {url} to PDF[/red]\n")
 
-                progress.add_task(
-                    description="Preparing content to add. :pencil:")
-                html_document = self.process_and_add_content(
-                    request_responses, document)
-
-                progress.add_task(
-                    description="HTML is getting ready to save. :floppy_disk:")
-                self.save_html_to_file(html_document)
-
-                progress.add_task(
-                    description="Converting HTML to PDF :rocket:")
-                self.convert_html_to_pdf()
-
-                print("[bold Green]Your PDF is ready! :boom:[/bold Green]")
         except Exception as e:
-            print(f"Expected error: {e}")
+            print(f"Error processing URLs: {e}")
 
     def get_valid_urls(self):
-        """ Get valid URLs from the user """
-        valid_urls = []
-
-        while True:
-            user_input = typer.prompt(
-                "\nEnter the URL(s) separated by comma (,)")
-            split_urls = [url.strip() for url in user_input.replace(
-                " ", "").split(",") if url.strip()]
-
-            for url in split_urls:
-                if not validators.url(url) or not url:
-                    self.console.print(
-                        "\n[red] :x: Invalid URL. Please enter a valid URL. :x:[/red]")
-                else:
+        """Get valid URLs from the user"""
+        try:
+            urls = input("\nEnter the URL(s) separated by comma (,): ")
+            url_list = [url.strip() for url in urls.split(',')]
+            
+            valid_urls = []
+            for url in url_list:
+                if validators.url(url):
                     valid_urls.append(url)
-
-            user_done = typer.confirm(
-                "\nAre you done adding URLs?", default=False)
-
-            if user_done:
-                break
-
-        return valid_urls
+                else:
+                    self.console.print(
+                        f"\n[red]Invalid URL: {url}[/red]")
+            
+            return valid_urls
+        except Exception as e:
+            print(f"Error getting valid URLs: {e}")
+            return []
 
     def main(self):
         """
-            Convert web pages to a PDF File.
-            Provide list of URL's as command line.
+        Convert web pages to a PDF File.
+        Provide list of URL's as command line.
         """
         try:
             self.console.print(
-                "\n[bold Green]Welcome to Web2PDF! By @dvcoolarun :rocket:[/bold Green]",
+                "\n[bold Green]Welcome to Web2PDF! By @dvcoolarun [/bold Green]",
                 "\n[bold Yellow]If this CLI is helpful to you, please consider supporting me by buying me a coffee :coffee: https://www.buymeacoffee.com/web2pdf[/bold Yellow]")
             self.console.print(
                 "\n[bold red]Please provide the list of URLs to convert to PDF. :link:[/bold red]")
 
-            valid_urls=self.get_valid_urls()
+            valid_urls = self.get_valid_urls()
 
             if valid_urls:
-                self.process_urls(valid_urls)
+                asyncio.run(self.process_urls(valid_urls))
             else:
                 self.console.print(
                     "\n[red]No URLs provided. Exiting... :bye:[/red]")
@@ -278,5 +237,4 @@ class Web2PDFConverter:
             raise typer.Exit()
 
 if __name__ == "__main__":
-    convertor=Web2PDFConverter()
-    typer.run(convertor.main)
+    typer.run(Web2PDFConverter().main)

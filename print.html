@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>Web2PDF</title>
+    <style>
+    body {
+        hyphens: auto;
+        font-size: 12px;
+        font-weight: 100;
+        line-height: 1.5;
+        font-family: 'Work Sans', sans-serif;
+    }
+
+    @page {
+        size: A4;
+        @bottom-right {
+            content: counter(page);
+        }
+    }
+    @page :first {
+        @bottom-right {
+            content: "";
+        }
+    }
+
+    #article-body>div {
+        background-clip:content-box;
+        text-align: justify;
+        padding: 0em 1em;
+    }
+
+    #article-body > h1 {
+        font-weight: 100;
+        font-size: 24px;
+    }
+
+    .toc h1 {
+        font-weight: 100;
+        margin: 10% 0;
+    }
+    .toc h3 {
+        border-bottom: 2px solid #f9f9f9;
+        font-weight: 100;
+        padding: 1em 0em;
+    }
+
+    .toc h3 a {
+        display: block;
+        text-decoration: none;
+        color: #000;
+    }
+    .toc h3 a::after{
+        content: target-counter(attr(href), page);
+        float: right;
+    }
+    ul, li {
+        font-weight: 100;
+    }
+
+    img {
+        width: 100%;
+    }
+
+    .top-border {
+        border-top: 5px solid #000;
+        width: 30%;
+    }
+
+    .page-break {
+        page-break-before: always
+    }
+
+    blockquote {
+        background: #f9f9f9;
+        border-left: 10px solid #ccc;
+        margin: 1.5em 0.5em;
+        padding: 0.5em 0.5em;
+    }
+
+    blockquote p {
+        display: inline;
+    }
+
+    pre {
+        background: #f9f9f9;
+        border: 1px solid #eee;
+        white-space: pre-wrap
+    }
+    table {
+        background: #eee;
+        border: 1px solid #eee;
+        width: 100%;
+        white-space: pre-wrap
+    }
+    td{
+        background: #eee;
+    }
+</style>
+    <link href="https://fonts.googleapis.com/css2?family=Work+Sans:wght@100;200&amp;display=swap" rel="stylesheet">
+  </head>
+  <body>
+    <div id="article-body">
+      <h1 id="heading0">Nuxt: The Intuitive Vue Framework · Nuxt</h1>
+      <p class="top-border"></p>
+      <div><html><body><div><div class="text-sm font-medium text-white dark:text-gray-900" data-v-dc2e2485=""><p class="flex items-center gap-1 text-black"><span class="iconify i-ph:magic-wand w-5 h-5 flex-shrink-0 pointer-events-none hidden lg:inline-block mr-1" aria-hidden="true"></span><span>Learn Nuxt with a Collection of 100+ Tips!</span><button type="button" class="focus:outline-none focus-visible:outline-0 disabled:cursor-not-allowed disabled:opacity-75 aria-disabled:cursor-not-allowed aria-disabled:opacity-75 flex-shrink-0 font-medium text-xs gap-x-1 px-2 py-1 shadow-sm ring-1 ring-inset ring-gray-300 dark:ring-gray-700 text-gray-900 dark:text-white bg-white hover:bg-gray-50 disabled:bg-white aria-disabled:bg-white dark:bg-gray-900 dark:hover:bg-gray-800/50 dark:disabled:bg-gray-900 dark:aria-disabled:bg-gray-900 focus-visible:ring-2 focus-visible:ring-primary-500 dark:focus-visible:ring-primary-400 inline-flex items-center rounded-full ml-1"><span class="">Learn more</span><span class="iconify i-ph:arrow-right flex-shrink-0 h-4 w-4" aria-hidden="true"></span></button></p></div></div></body></html></div>
+    </div>
+    <p class="page-break"></p>
+  </body>
+</html>
